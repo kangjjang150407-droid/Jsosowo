@@ -91,6 +91,40 @@
             android:text="보안 부팅 지원 UEFI (x64 전용)" />
 
         <CheckBox
+            android:id="@+id/autoInstall"
+            style="@style/Label"
+            android:text="디스크·에디션 자동 선택 (빈 가상 디스크에만 적용, 부팅 키도 자동)" />
+
+        <RadioGroup
+            android:id="@+id/editionGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/edPro"
+                style="@style/RowLabel"
+                android:text="Windows 11 Pro" />
+
+            <RadioButton
+                android:id="@+id/edHome"
+                style="@style/RowLabel"
+                android:text="Windows 11 Home" />
+        </RadioGroup>
+
+        <LinearLayout style="@style/Row">
+            <TextView style="@style/RowLabel" android:text="제품 키 (선택, 비우면 정품인증 없이 설치)" />
+            <EditText
+                android:id="@+id/productKey"
+                style="@style/Num"
+                android:layout_width="170dp"
+                android:hint="XXXXX-XXXXX-…"
+                android:inputType="textCapCharacters"
+                android:textColorHint="#777777"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <CheckBox
             android:id="@+id/autoLocal"
             style="@style/Label"
             android:text="로컬 계정 자동 생성 (MS 계정·인터넷 없이 설치, 자동 로그인)" />

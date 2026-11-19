@@ -21,6 +21,9 @@ public final class VmConfig {
     public boolean autoLocal;   // auto-create a local account via autounattend.xml
     public String userName;
     public String userPass;
+    public boolean autoInstall; // auto disk partitioning + edition (fresh disk only)
+    public boolean editionHome;
+    public String productKey;   // optional own key; empty = generic key for the edition
 
     private final SharedPreferences sp;
 
@@ -30,6 +33,7 @@ public final class VmConfig {
         ramMb = 4096; cores = 2; diskGb = 64; tpm = true; secureBoot = true;
         cpuModel = "max"; extraArgs = "";
         autoLocal = true; userName = "User"; userPass = "";
+        autoInstall = true; editionHome = false; productKey = "";
     }
 
     public VmConfig(Context ctx) {
@@ -45,6 +49,9 @@ public final class VmConfig {
         autoLocal = sp.getBoolean("autoLocal", true);
         userName = sp.getString("userName", "User");
         userPass = sp.getString("userPass", "");
+        autoInstall = sp.getBoolean("autoInstall", true);
+        editionHome = sp.getBoolean("editionHome", false);
+        productKey = sp.getString("productKey", "");
     }
 
     public void save() {
@@ -60,6 +67,9 @@ public final class VmConfig {
                 .putBoolean("autoLocal", autoLocal)
                 .putString("userName", userName)
                 .putString("userPass", userPass)
+                .putBoolean("autoInstall", autoInstall)
+                .putBoolean("editionHome", editionHome)
+                .putString("productKey", productKey)
                 .apply();
     }
 
@@ -67,15 +77,36 @@ public final class VmConfig {
     public String varsName() { return arm64 ? "efivars-arm64.fd" : "efivars-x64.fd"; }
     public static final String ISO_NAME = "install.iso";
 
-    /** Writes vm/unattend/autounattend.xml for the current settings (or removes it). */
-    public void prepareUnattend(File vmDir) throws java.io.IOException {
+    /** True if the VM disk is missing or still empty (nothing installed yet). */
+    public boolean diskIsFresh(File vmDir) {
+        File d = new File(vmDir, diskName());
+        return !d.exists() || d.length() < (64L << 20);
+    }
+
+    /**
+     * Writes vm/unattend/autounattend.xml for the current settings (or removes it).
+     * @return true if this boot is a fully automatic fresh install (disk + edition automated)
+     */
+    public boolean prepareUnattend(File vmDir, String isoName) throws java.io.IOException {
         File dir = new File(vmDir, "unattend");
         File xml = new File(dir, "autounattend.xml");
-        if (!autoLocal) { xml.delete(); return; }
+        boolean install = autoInstall && new File(vmDir, ISO_NAME).exists() && diskIsFresh(vmDir);
+        if (!autoLocal && !install) { xml.delete(); return false; }
+        Unattend.Options o = new Unattend.Options();
+        o.arm64 = arm64;
+        o.install = install;
+        String key = productKey == null ? "" : productKey.trim().toUpperCase(java.util.Locale.ROOT);
+        o.productKey = key.matches("[A-Z0-9]{5}(-[A-Z0-9]{5}){4}") ? key
+                : (editionHome ? Unattend.KEY_HOME : Unattend.KEY_PRO);
+        o.uiLanguage = Unattend.languageFromIsoName(isoName);
+        o.localAccount = autoLocal;
+        o.user = userName;
+        o.password = userPass;
         dir.mkdirs();
-        try (java.io.OutputStream o = new java.io.FileOutputStream(xml)) {
-            o.write(Unattend.xml(arm64, userName, userPass).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        try (java.io.OutputStream out = new java.io.FileOutputStream(xml)) {
+            out.write(Unattend.xml(o).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
+        return install;
     }
 
     /** Shell script executed inside Alpine that prepares files and launches QEMU. */
@@ -106,7 +137,7 @@ public final class VmConfig {
         }
 
         // Answer file on a second CD: Windows Setup picks up autounattend.xml from it
-        boolean unattend = hasIso && autoLocal;
+        boolean unattend = hasIso && new File(vmDir, "unattend/autounattend.xml").exists();
         if (unattend) {
             s.append("command -v xorriso >/dev/null || apk add --no-progress xorriso\n");
             s.append("rm -f unattend.iso && xorriso -as mkisofs -quiet -J -r -V UNATTEND -o unattend.iso /vm/unattend\n");

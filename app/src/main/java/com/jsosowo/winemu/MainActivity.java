@@ -31,8 +31,9 @@ public class MainActivity extends Activity {
     private VmConfig cfg;
     private TextView status, log, isoInfo;
     private EditText ram, cores, disk, cpu, extra;
-    private CheckBox tpm, secureBoot, autoLocal;
-    private EditText userName, userPass;
+    private CheckBox tpm, secureBoot, autoLocal, autoInstall;
+    private EditText userName, userPass, productKey;
+    private RadioGroup editionGroup;
     private RadioGroup archGroup;
     private Button btnSetup, btnStart, btnIsoDownload;
     private String lastIsoName = null;
@@ -66,6 +67,9 @@ public class MainActivity extends Activity {
         tpm = findViewById(R.id.tpm);
         secureBoot = findViewById(R.id.secureBoot);
         autoLocal = findViewById(R.id.autoLocal);
+        autoInstall = findViewById(R.id.autoInstall);
+        productKey = findViewById(R.id.productKey);
+        editionGroup = findViewById(R.id.editionGroup);
         userName = findViewById(R.id.userName);
         userPass = findViewById(R.id.userPass);
         archGroup = findViewById(R.id.archGroup);
@@ -83,6 +87,11 @@ public class MainActivity extends Activity {
         tpm.setChecked(cfg.tpm);
         secureBoot.setChecked(cfg.secureBoot);
         autoLocal.setChecked(cfg.autoLocal);
+        autoInstall.setChecked(cfg.autoInstall);
+        editionGroup.check(cfg.editionHome ? R.id.edHome : R.id.edPro);
+        productKey.setText(cfg.productKey);
+        setEditionEnabled(cfg.autoInstall);
+        autoInstall.setOnCheckedChangeListener((v, on) -> setEditionEnabled(on));
         userName.setText(cfg.userName);
         userPass.setText(cfg.userPass);
         userName.setEnabled(cfg.autoLocal);
@@ -129,10 +138,18 @@ public class MainActivity extends Activity {
         cfg.tpm = tpm.isChecked();
         cfg.secureBoot = secureBoot.isChecked();
         cfg.autoLocal = autoLocal.isChecked();
+        cfg.autoInstall = autoInstall.isChecked();
+        cfg.editionHome = editionGroup.getCheckedRadioButtonId() == R.id.edHome;
+        cfg.productKey = productKey.getText().toString().trim();
         String un = userName.getText().toString().trim().replaceAll("[\\\\/\\[\\]:;|=,+*?<>\"@]", "");
         cfg.userName = un.isEmpty() ? "User" : (un.length() > 20 ? un.substring(0, 20) : un);
         cfg.userPass = userPass.getText().toString();
         cfg.save();
+    }
+
+    private void setEditionEnabled(boolean on) {
+        for (int i = 0; i < editionGroup.getChildCount(); i++) editionGroup.getChildAt(i).setEnabled(on);
+        productKey.setEnabled(on);
     }
 
     private static int parse(EditText e, int def, int min, int max) {
@@ -319,9 +336,11 @@ public class MainActivity extends Activity {
                 + "<b>Windows 11 설치 팁</b><br>"
                 + "• 명령 프롬프트: 화면을 한 번 탭해 설치 창을 선택한 뒤, 상단 툴바의 <b>Shift+F10</b> 버튼을 누르세요. "
                 + "(휴대폰 키보드에는 F10이 없어서 툴바 버튼을 써야 합니다)<br>"
-                + "• <b>로컬 계정 자동 생성</b>이 켜져 있으면(기본) 설치 후 계정·인터넷·개인정보 질문 없이 "
-                + "바로 바탕화면으로 자동 로그인합니다. 디스크 선택과 에디션(Home/Pro) 선택만 직접 하면 됩니다. "
-                + "VM 시작 전에 켜 두어야 적용돼요.<br>"
+                + "• <b>완전 자동 설치</b>(기본): ISO를 넣고 VM 시작만 누르면 CD 부팅 키, 언어, 디스크 파티션, "
+                + "에디션, 계정·인터넷·개인정보 질문까지 모두 자동으로 처리되고 바탕화면으로 자동 로그인합니다. "
+                + "디스크 자동 선택은 <b>비어 있는 새 가상 디스크</b>에만 적용돼서, 이미 설치된 디스크는 지워지지 않아요.<br>"
+                + "• 제품 키를 비워두면 Microsoft 공개 일반 키로 에디션만 고르고, 정품 인증은 되지 않습니다 "
+                + "(나중에 설정에서 정품 키를 입력하면 됩니다).<br>"
                 + "• 수동으로 하려면: Shift+F10 → <tt>start ms-cxh:localonly</tt> "
                 + "(예전 버전은 <tt>OOBE\\BYPASSNRO</tt>).<br>"
                 + "• TPM을 끈 경우: 설치 화면에서 Shift+F10 → regedit → HKLM\\SYSTEM\\Setup\\LabConfig 에 "

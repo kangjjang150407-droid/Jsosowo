@@ -279,8 +279,13 @@ public class VmService extends Service {
                 + (kvm ? ", KVM 가속" : ", TCG 에뮬레이션") + ")");
         updateNotification("Windows VM 실행 중");
         try {
-            cfg.prepareUnattend(env.vmDir);
+            String isoName = getSharedPreferences("vm", MODE_PRIVATE).getString("isoName", "");
+            boolean autoInstall = cfg.prepareUnattend(env.vmDir, isoName);
             if (cfg.autoLocal) log("[winemu] 로컬 계정 자동 설정: " + cfg.userName);
+            if (autoInstall) {
+                log("[winemu] 자동 설치: 새 디스크 → 파티션·에디션(" + (cfg.editionHome ? "Home" : "Pro") + ") 자동 선택");
+                new Thread(VmService::pressKeyToBootCd, "boot-cd").start();
+            }
             ProcessBuilder pb = env.shell(cfg.buildScript(env.vmDir, kvm));
             int rc = runLogged(pb, true);
             log("[winemu] QEMU exited with code " + rc);
@@ -323,7 +328,12 @@ public class VmService extends Service {
                 + "],\"hold-time\":" + holdMs + "}}", "send-key " + String.join("+", qcodes));
     }
 
-    private static synchronized boolean qmpExec(String json, String label) {
+    private static boolean qmpExec(String json, String label) {
+        return qmpCall(json, label, false) != null;
+    }
+
+    /** Runs one QMP command and returns its reply line (null on failure). */
+    private static synchronized String qmpCall(String json, String label, boolean quiet) {
         String command = label;
         try (Socket s = new Socket()) {
             s.connect(new InetSocketAddress("127.0.0.1", VmConfig.QMP_PORT), 2000);
@@ -335,12 +345,52 @@ public class VmService extends Service {
             r.readLine();
             o.write((json + "\n").getBytes(StandardCharsets.UTF_8));
             o.flush();
-            log("[winemu] QMP " + command + " -> " + r.readLine());
-            return true;
+            String line;
+            do {
+                line = r.readLine(); // skip asynchronous events
+            } while (line != null && !line.contains("\"return\"") && !line.contains("\"error\""));
+            if (!quiet) log("[winemu] QMP " + command + " -> " + line);
+            return line;
         } catch (Exception e) {
-            log("[winemu] QMP " + command + " failed: " + e.getMessage());
-            return false;
+            if (!quiet) log("[winemu] QMP " + command + " failed: " + e.getMessage());
+            return null;
         }
+    }
+
+    /**
+     * Gets past "Press any key to boot from CD or DVD" on a fresh install: presses Enter every
+     * second until the guest has clearly started reading the installer (cd0 read > 40 MB).
+     */
+    private static void pressKeyToBootCd() {
+        long deadline = System.currentTimeMillis() + 10 * 60_000L;
+        boolean announced = false;
+        while (running && System.currentTimeMillis() < deadline) {
+            try { Thread.sleep(1000); } catch (InterruptedException e) { return; }
+            String stats = qmpCall("{\"execute\":\"query-blockstats\"}", "blockstats", true);
+            if (stats == null) continue; // QEMU not up yet
+            long cdRead = cdReadBytes(stats);
+            if (cdRead > (40L << 20)) {
+                log("[winemu] 설치 프로그램 부팅 확인 — 자동 키 입력 종료");
+                return;
+            }
+            if (!announced) { log("[winemu] CD 부팅 키 자동 입력 중…"); announced = true; }
+            qmpCall("{\"execute\":\"send-key\",\"arguments\":{\"keys\":[{\"type\":\"qcode\",\"data\":\"ret\"}],\"hold-time\":50}}",
+                    "send-key ret", true);
+        }
+    }
+
+    /** rd_bytes of the cd0 drive from a query-blockstats reply. */
+    static long cdReadBytes(String reply) {
+        try {
+            org.json.JSONArray arr = new org.json.JSONObject(reply).getJSONArray("return");
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject d = arr.getJSONObject(i);
+                if ("cd0".equals(d.optString("device"))) {
+                    return d.getJSONObject("stats").getLong("rd_bytes");
+                }
+            }
+        } catch (Exception ignored) {}
+        return 0;
     }
 
     private int runLogged(ProcessBuilder pb) throws Exception { return runLogged(pb, false); }

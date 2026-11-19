@@ -52,6 +52,7 @@ GitHub Actions(`.github/workflows/build-apk.yml`)가 push마다 APK를 빌드해
 - **VM이 갑자기 종료됨 (Android 12+)**: 팬텀 프로세스 제한. 개발자 옵션 → "하위 프로세스 제한 사용 중지", 또는
   `adb shell device_config put activity_manager max_phantom_processes 2147483647`
 - **Shift+F10**: 화면을 한 번 탭한 뒤 상단 툴바의 `Shift+F10` 버튼 (QEMU에 키를 직접 눌러 보냄)
+- **완전 자동 설치 (기본 켜짐)**: 빈 가상 디스크 + ISO로 VM을 시작하면 CD 부팅 키(Enter 자동 입력), 설치 언어(ISO 파일 이름으로 판단), GPT 파티션, 에디션(Pro/Home, Microsoft 공개 일반 키 — 정품 인증 아님)이 자동 처리됩니다. 이미 설치된 디스크(64MB 이상)에는 디스크 자동 선택을 적용하지 않습니다.
 - **로컬 계정 자동 생성 (기본 켜짐)**: VM 시작 시 `autounattend.xml`을 담은 작은 CD를 함께 넣어, 계정·인터넷·개인정보 단계 없이 로컬 관리자 계정으로 자동 로그인합니다. 디스크·에디션 선택만 직접 하면 됩니다.
 - **수동으로 MS 계정 건너뛰기**: Shift+F10 → `start ms-cxh:localonly` (예전 빌드는 `OOBE\BYPASSNRO`)
 - **TPM 끄고 설치**: Shift+F10 → regedit → `HKLM\SYSTEM\Setup\LabConfig`에 `BypassTPMCheck`, `BypassSecureBootCheck`, `BypassRAMCheck` (DWORD=1)
