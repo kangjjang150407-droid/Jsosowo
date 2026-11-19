@@ -33,7 +33,8 @@ public class MainActivity extends Activity {
     private EditText ram, cores, disk, cpu, extra;
     private CheckBox tpm, secureBoot;
     private RadioGroup archGroup;
-    private Button btnSetup, btnStart;
+    private Button btnSetup, btnStart, btnIsoDownload;
+    private String lastIsoName = null;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile String copyStatus = null;
     private String lastLog = "";
@@ -66,6 +67,8 @@ public class MainActivity extends Activity {
         archGroup = findViewById(R.id.archGroup);
         btnSetup = findViewById(R.id.btnSetup);
         btnStart = findViewById(R.id.btnStart);
+        btnIsoDownload = findViewById(R.id.btnIsoDownload);
+        btnIsoDownload.setOnClickListener(v -> onIsoDownloadClicked());
 
         archGroup.check(cfg.arm64 ? R.id.archArm : R.id.archX64);
         ram.setText(String.valueOf(cfg.ramMb));
@@ -88,6 +91,8 @@ public class MainActivity extends Activity {
         findViewById(R.id.btnIso).setOnClickListener(v -> pickIso());
         findViewById(R.id.btnIsoRemove).setOnClickListener(v -> {
             if (VmService.running) { toast("VM 실행 중에는 바꿀 수 없어요."); return; }
+            if (VmService.downloadingIso) { toast("다운로드 중에는 '다운로드 취소'를 누르세요."); return; }
+            new File(env.vmDir, VmConfig.ISO_NAME + ".part").delete();
             new File(env.vmDir, VmConfig.ISO_NAME).delete();
             refresh();
         });
@@ -127,11 +132,11 @@ public class MainActivity extends Activity {
     private void startVm() {
         readConfig();
         if (!env.isInstalled()) { toast("먼저 1단계 환경 설치를 해주세요."); return; }
-        if (copyStatus != null) { toast("ISO 복사가 끝날 때까지 기다려주세요."); return; }
+        if (copyStatus != null || VmService.downloadingIso) { toast("ISO 준비가 끝날 때까지 기다려주세요."); return; }
         boolean hasIso = new File(env.vmDir, VmConfig.ISO_NAME).exists();
         boolean hasDisk = new File(env.vmDir, cfg.diskName()).exists();
         if (!hasIso && !hasDisk) {
-            toast("설치용 Windows 11 ISO를 먼저 선택하세요.");
+            toast("먼저 'Windows 11 ISO 받기'로 ISO를 준비하세요.");
             return;
         }
         VmService.send(this, VmService.ACTION_START);
@@ -209,7 +214,7 @@ public class MainActivity extends Activity {
                 File iso = new File(env.vmDir, VmConfig.ISO_NAME);
                 iso.delete();
                 if (!tmp.renameTo(iso)) throw new Exception("rename failed");
-                getSharedPreferences("vm", MODE_PRIVATE).edit().putString("isoName", fname).apply();
+                IsoInfo.remember(this, fname);
                 VmService.log("[winemu] ISO imported: " + fname);
                 runOnUiThread(() -> toast("ISO 준비 완료: " + fname));
             } catch (Exception e) {
@@ -238,11 +243,23 @@ public class MainActivity extends Activity {
         btnStart.setEnabled(!VmService.installing && !VmService.running);
 
         File iso = new File(env.vmDir, VmConfig.ISO_NAME);
-        if (iso.exists()) {
-            String n = getSharedPreferences("vm", MODE_PRIVATE).getString("isoName", "install.iso");
+        String isoName = getSharedPreferences("vm", MODE_PRIVATE).getString("isoName", "");
+        if (lastIsoName != null && !isoName.equals(lastIsoName)) {
+            // a new ISO arrived: follow the architecture it was built for
+            cfg = new VmConfig(this);
+            archGroup.check(cfg.arm64 ? R.id.archArm : R.id.archX64);
+        }
+        lastIsoName = isoName;
+        btnIsoDownload.setText(VmService.downloadingIso ? "✕ ISO 다운로드 취소"
+                : new File(env.vmDir, VmConfig.ISO_NAME + ".part").exists()
+                ? "⬇ ISO 다운로드 이어받기 (Microsoft 공식)" : "⬇ Windows 11 ISO 받기 (Microsoft 공식)");
+        if (VmService.downloadingIso) {
+            isoInfo.setText("💿 Microsoft 서버에서 ISO 다운로드 중… (진행률은 위 상태창)");
+        } else if (iso.exists()) {
+            String n = isoName.isEmpty() ? "install.iso" : isoName;
             isoInfo.setText("💿 ISO: " + n + " (" + (iso.length() >> 20) + "MB)");
         } else {
-            isoInfo.setText("💿 ISO 없음 — 설치 후에는 빼두면 디스크로 부팅합니다.");
+            isoInfo.setText("💿 ISO 없음 — 'Windows 11 ISO 받기'를 누르세요. (설치가 끝난 뒤에는 빼두면 디스크로 부팅)");
         }
 
         String l = VmService.logText();
@@ -253,13 +270,35 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void onIsoDownloadClicked() {
+        if (VmService.downloadingIso) {
+            VmService.send(this, VmService.ACTION_CANCEL_ISO);
+            return;
+        }
+        if (VmService.running) { toast("VM을 종료한 뒤 받으세요."); return; }
+        readConfig();
+        String[] items = {"Windows 11 x64 (일반 PC용, 약 7GB)", "Windows 11 ARM64 (휴대폰에서 더 빠름, 약 6GB)"};
+        new AlertDialog.Builder(this)
+                .setTitle("어떤 Windows 11을 받을까요?")
+                .setSingleChoiceItems(items, cfg.arm64 ? 1 : 0, null)
+                .setPositiveButton("Microsoft 페이지 열기", (d, w) -> {
+                    boolean arm = ((AlertDialog) d).getListView().getCheckedItemPosition() == 1;
+                    archGroup.check(arm ? R.id.archArm : R.id.archX64);
+                    readConfig();
+                    startActivity(new Intent(this, IsoDownloadActivity.class)
+                            .putExtra(IsoDownloadActivity.EXTRA_ARM64, arm));
+                })
+                .setNegativeButton("취소", null).show();
+    }
+
     private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_LONG).show(); }
 
     private String getHelpHtml() {
         return "<b>사용 순서</b><br>"
                 + "1) <b>환경 설치</b>: Alpine Linux와 QEMU(약 200MB)를 내려받습니다.<br>"
-                + "2) Microsoft 공식 사이트에서 받은 <b>Windows 11 ISO</b>를 선택합니다. "
-                + "x64용 ISO는 'x64', ARM64용 ISO는 'ARM64'를 고르세요. (ISO는 직접 준비해야 합니다)<br>"
+                + "2) <b>Windows 11 ISO 받기</b>: 앱 안에서 Microsoft 공식 다운로드 페이지가 열립니다. "
+                + "언어(한국어)를 고르고 다운로드를 누르면 앱이 자동 저장하고, x64/ARM64 설정도 맞춰줍니다. "
+                + "(끊기면 이어받기 가능. 이미 가진 ISO는 '내 파일에서 ISO 선택')<br>"
                 + "3) <b>VM 시작</b> → 화면이 뜨면 'Press any key to boot from CD' 문구에서 화면을 탭하세요.<br><br>"
                 + "<b>화면 조작</b>: 탭 = 클릭, 두 손가락 탭 = 우클릭, 길게 누르고 끌기 = 드래그, "
                 + "두 손가락 상하 = 스크롤. 상단 툴바에서 키보드, Ctrl+Alt+Del, Win 키를 쓸 수 있어요.<br><br>"

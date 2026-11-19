@@ -22,11 +22,14 @@ Android 앱 (Java)
 ## 사용법
 
 1. APK 설치 → 앱 실행 → **환경 설치** (약 200MB 다운로드, Wi‑Fi 권장)
-2. Microsoft 공식 사이트에서 Windows 11 ISO를 받아 **ISO 선택**
+2. **Windows 11 ISO 받기** → 앱 안에서 Microsoft 공식 다운로드 페이지가 열림 → 언어 선택 후 다운로드를 누르면
+   앱이 ISO를 VM 폴더에 바로 저장 (이어받기 지원, 파일 이름으로 x64/ARM64 자동 설정).
+   이미 받은 ISO가 있으면 **내 파일에서 ISO 선택**
 3. 메모리(4096MB 이상)·코어·디스크(64GB 이상) 설정 후 **VM 시작**
 4. 화면에서 `Press any key to boot from CD` 가 나오면 화면을 탭
 
-Windows ISO와 라이선스는 사용자가 직접 준비해야 합니다.
+ISO는 APK에 포함하지 않습니다. 5~7GB라 APK 최대 크기(4GB)를 넘고, Microsoft 라이선스상 재배포가 금지돼 있어서
+매번 Microsoft 서버에서 직접 받습니다. Windows 정품 인증은 별도입니다.
 
 ## 성능에 대한 솔직한 안내
 

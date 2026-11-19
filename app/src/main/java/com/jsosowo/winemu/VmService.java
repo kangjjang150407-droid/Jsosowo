@@ -32,6 +32,9 @@ public class VmService extends Service {
     public static final String ACTION_START = "start";
     public static final String ACTION_POWERDOWN = "powerdown";
     public static final String ACTION_KILL = "kill";
+    public static final String ACTION_DOWNLOAD_ISO = "downloadIso";
+    public static final String ACTION_CANCEL_ISO = "cancelIso";
+    public static final String EXTRA_URL = "url";
 
     private static final String CHANNEL = "vm";
     private static final int NOTIF_ID = 1;
@@ -40,6 +43,8 @@ public class VmService extends Service {
     public static volatile boolean installing = false;
     public static volatile boolean running = false;
     public static volatile String status = "";
+    public static volatile boolean downloadingIso = false;
+    private static volatile boolean cancelIso = false;
     private static final StringBuilder LOG = new StringBuilder();
 
     private static Process vmProcess;
@@ -77,17 +82,27 @@ public class VmService extends Service {
             new Thread(() -> qmp("system_powerdown"), "qmp").start();
         } else if (ACTION_KILL.equals(action)) {
             new Thread(this::killVm, "kill").start();
+        } else if (ACTION_DOWNLOAD_ISO.equals(action)) {
+            String url = intent.getStringExtra(EXTRA_URL);
+            if (!downloadingIso && !running && url != null) {
+                downloadingIso = true;
+                new Thread(() -> runIsoDownload(url), "iso").start();
+            }
+        } else if (ACTION_CANCEL_ISO.equals(action)) {
+            cancelIso = true;
         }
-        if (!installing && !running && !ACTION_SETUP.equals(action) && !ACTION_START.equals(action)) {
+        if (!busy()) {
             stopSelfLater();
         }
         return START_NOT_STICKY;
     }
 
+    private static boolean busy() { return installing || running || downloadingIso; }
+
     private void stopSelfLater() {
         new Thread(() -> {
             try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
-            if (!installing && !running) {
+            if (!busy()) {
                 stopForeground(true);
                 stopSelf();
             }
@@ -121,7 +136,7 @@ public class VmService extends Service {
                     "apk update && apk add --no-progress " + Env.PACKAGES
                             + " && qemu-system-x86_64 --version && touch /.winemu-ready"));
             if (rc != 0 || !env.isInstalled()) throw new Exception("apk 설치 실패 (코드 " + rc + ")");
-            setStatus("설치 완료! 이제 ISO를 선택하고 VM을 시작하세요.");
+            setStatus("설치 완료! 이제 'Windows 11 ISO 받기'를 누르세요.");
         } catch (Throwable t) {
             log("[winemu] ERROR: " + t);
             setStatus("설치 실패: " + t.getMessage());
@@ -156,10 +171,101 @@ public class VmService extends Service {
         }
     }
 
+    // ------------------------------------------------------------------ Windows ISO
+
+    /** Downloads the ISO the user picked on Microsoft's page straight into the VM folder (resumable). */
+    private void runIsoDownload(String url) {
+        cancelIso = false;
+        acquireWakeLock();
+        Env env = new Env(this);
+        env.vmDir.mkdirs();
+        String name = IsoInfo.fileNameFromUrl(url);
+        File part = new File(env.vmDir, VmConfig.ISO_NAME + ".part");
+        try {
+            setStatus("Windows 11 ISO 다운로드 시작: " + name);
+            for (int attempt = 1; ; attempt++) {
+                try {
+                    if (downloadIsoOnce(url, part)) break;
+                    throw new Exception("다운로드가 완료되지 않았습니다");
+                } catch (InterruptedException e) {
+                    throw e;
+                } catch (Exception e) {
+                    if (cancelIso || attempt >= 5) throw e;
+                    log("[winemu] 다운로드 끊김, 이어받기 재시도 " + attempt + ": " + e.getMessage());
+                    Thread.sleep(3000L * attempt);
+                }
+            }
+            File iso = new File(env.vmDir, VmConfig.ISO_NAME);
+            iso.delete();
+            if (!part.renameTo(iso)) throw new Exception("파일 이름 변경 실패");
+            IsoInfo.remember(this, name);
+            setStatus("ISO 준비 완료: " + name + " — 이제 VM을 시작하세요.");
+        } catch (Throwable t) {
+            if (cancelIso) {
+                part.delete();
+                setStatus("ISO 다운로드를 취소했습니다.");
+            } else {
+                log("[winemu] ISO ERROR: " + t);
+                setStatus("ISO 다운로드 실패: " + t.getMessage() + " (다시 누르면 이어받습니다)");
+            }
+        } finally {
+            downloadingIso = false;
+            releaseWakeLock();
+            stopSelfLater();
+        }
+    }
+
+    private boolean downloadIsoOnce(String url, File part) throws Exception {
+        long have = part.exists() ? part.length() : 0;
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(20000);
+        c.setReadTimeout(60000);
+        if (have > 0) c.setRequestProperty("Range", "bytes=" + have + "-");
+        int code = c.getResponseCode();
+        if (code == 416) return true; // already complete
+        if (code != 200 && code != 206) {
+            throw new Exception("HTTP " + code + (code == 403 ? " (링크가 만료됨 — Microsoft 페이지에서 다시 받아주세요)" : ""));
+        }
+        boolean append = code == 206;
+        if (!append) have = 0;
+        long total = c.getContentLengthLong();
+        if (total > 0) total += have;
+        long free = new android.os.StatFs(part.getParent()).getAvailableBytes();
+        if (total > 0 && total - have > free - (256L << 20)) {
+            throw new Exception("저장공간 부족 (필요 " + ((total - have) >> 20) + "MB, 여유 " + (free >> 20) + "MB)");
+        }
+        long start = System.currentTimeMillis(), startBytes = have, lastUi = 0;
+        try (InputStream in = c.getInputStream(); OutputStream os = new FileOutputStream(part, append)) {
+            byte[] b = new byte[1 << 18];
+            int n;
+            while ((n = in.read(b)) > 0) {
+                if (cancelIso) throw new Exception("취소됨");
+                os.write(b, 0, n);
+                have += n;
+                long now = System.currentTimeMillis();
+                if (now - lastUi > 1000) {
+                    lastUi = now;
+                    double mbps = (have - startBytes) / 1048576.0 / Math.max(1, (now - start) / 1000.0);
+                    String st = "ISO 다운로드 중… " + (have >> 20) + "MB"
+                            + (total > 0 ? " / " + (total >> 20) + "MB (" + (have * 100 / total) + "%)" : "")
+                            + String.format(java.util.Locale.US, " · %.1f MB/s", mbps);
+                    status = st;
+                    updateNotification(st);
+                }
+            }
+        }
+        return total <= 0 || have >= total;
+    }
+
     // ------------------------------------------------------------------ VM
 
     private void runVm() {
         Env env = new Env(this);
+        if (downloadingIso) {
+            setStatus("ISO 다운로드가 끝난 뒤 시작하세요.");
+            stopSelfLater();
+            return;
+        }
         if (!env.isInstalled()) {
             setStatus("먼저 '환경 설치'를 실행하세요.");
             stopSelfLater();
@@ -264,7 +370,7 @@ public class VmService extends Service {
     }
 
     private void releaseWakeLock() {
-        if (wakeLock != null && wakeLock.isHeld() && !installing && !running) wakeLock.release();
+        if (wakeLock != null && wakeLock.isHeld() && !busy()) wakeLock.release();
     }
 
     static void writeFile(File f, String content) throws Exception {

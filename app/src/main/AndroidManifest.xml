@@ -32,6 +32,10 @@
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             android:windowSoftInputMode="adjustResize" />
 
+        <activity
+            android:name=".IsoDownloadActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
         <service
             android:name=".VmService"
             android:exported="false" />
