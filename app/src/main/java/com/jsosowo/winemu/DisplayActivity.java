@@ -112,7 +112,7 @@ public class DisplayActivity extends Activity {
         @JavascriptInterface
         public void sendKeys(String keys, int holdMs) {
             String[] k = keys.split(",");
-            new Thread(() -> VmService.sendKeys(k, Math.max(50, Math.min(2000, holdMs))), "keys").start();
+            new Thread(() -> VmService.sendKeys(k, Math.max(10, Math.min(2000, holdMs))), "keys").start();
         }
 
         @JavascriptInterface

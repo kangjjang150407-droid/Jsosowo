@@ -89,6 +89,7 @@ const KEYS = {
 for (let n = 1; n <= 12; n++) KEYS['F' + n] = [KeyTable.XK_F1 + n - 1, 'F' + n, 'f' + n];
 
 const mods = { ctrl: false, alt: false, shift: false };
+const HOLD_MS = 50; // how long key combos are held down
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function connect() {
@@ -135,23 +136,23 @@ function takeMods() {
  * combinations such as Shift+F10.
  */
 let queue = Promise.resolve();
-function vncCombo(list, hold = 120) {
+function vncCombo(list, hold = HOLD_MS) {
   // queued so that fast typing never interleaves key presses
   queue = queue.then(() => vncComboNow(list, hold)).catch(() => {});
 }
 async function vncComboNow(list, hold) {
   if (!rfb) return;
-  for (const [sym, code] of list) { rfb.sendKey(sym, code, true); await sleep(list.length > 1 ? 40 : 0); }
+  for (const [sym, code] of list) { rfb.sendKey(sym, code, true); await sleep(list.length > 1 ? 15 : 0); }
   await sleep(hold);
-  for (const [sym, code] of [...list].reverse()) { rfb && rfb.sendKey(sym, code, false); await sleep(25); }
+  for (const [sym, code] of [...list].reverse()) { rfb && rfb.sendKey(sym, code, false); await sleep(10); }
 }
 
 /** Press named keys (plus any sticky modifiers) inside the VM. */
 function press(...names) {
   const all = [...takeMods().filter(m => !names.includes(m)), ...names];
-  // Prefer QEMU's own send-key (via the app): keys are truly held for 150 ms.
+  // Prefer QEMU's own send-key (via the app): keys are truly held for HOLD_MS.
   if (window.Android && Android.sendKeys) {
-    Android.sendKeys(all.map(n => KEYS[n][2]).join(','), 150);
+    Android.sendKeys(all.map(n => KEYS[n][2]).join(','), HOLD_MS);
   } else {
     vncCombo(all.map(n => KEYS[n]));
   }
