@@ -279,6 +279,8 @@ public class VmService extends Service {
                 + (kvm ? ", KVM 가속" : ", TCG 에뮬레이션") + ")");
         updateNotification("Windows VM 실행 중");
         try {
+            cfg.prepareUnattend(env.vmDir);
+            if (cfg.autoLocal) log("[winemu] 로컬 계정 자동 설정: " + cfg.userName);
             ProcessBuilder pb = env.shell(cfg.buildScript(env.vmDir, kvm));
             int rc = runLogged(pb, true);
             log("[winemu] QEMU exited with code " + rc);

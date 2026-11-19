@@ -31,7 +31,8 @@ public class MainActivity extends Activity {
     private VmConfig cfg;
     private TextView status, log, isoInfo;
     private EditText ram, cores, disk, cpu, extra;
-    private CheckBox tpm, secureBoot;
+    private CheckBox tpm, secureBoot, autoLocal;
+    private EditText userName, userPass;
     private RadioGroup archGroup;
     private Button btnSetup, btnStart, btnIsoDownload;
     private String lastIsoName = null;
@@ -64,6 +65,9 @@ public class MainActivity extends Activity {
         extra = findViewById(R.id.extra);
         tpm = findViewById(R.id.tpm);
         secureBoot = findViewById(R.id.secureBoot);
+        autoLocal = findViewById(R.id.autoLocal);
+        userName = findViewById(R.id.userName);
+        userPass = findViewById(R.id.userPass);
         archGroup = findViewById(R.id.archGroup);
         btnSetup = findViewById(R.id.btnSetup);
         btnStart = findViewById(R.id.btnStart);
@@ -78,6 +82,12 @@ public class MainActivity extends Activity {
         extra.setText(cfg.extraArgs);
         tpm.setChecked(cfg.tpm);
         secureBoot.setChecked(cfg.secureBoot);
+        autoLocal.setChecked(cfg.autoLocal);
+        userName.setText(cfg.userName);
+        userPass.setText(cfg.userPass);
+        userName.setEnabled(cfg.autoLocal);
+        userPass.setEnabled(cfg.autoLocal);
+        autoLocal.setOnCheckedChangeListener((v, on) -> { userName.setEnabled(on); userPass.setEnabled(on); });
 
         btnSetup.setOnClickListener(v -> VmService.send(this, VmService.ACTION_SETUP));
         btnStart.setOnClickListener(v -> startVm());
@@ -118,6 +128,10 @@ public class MainActivity extends Activity {
         cfg.extraArgs = extra.getText().toString();
         cfg.tpm = tpm.isChecked();
         cfg.secureBoot = secureBoot.isChecked();
+        cfg.autoLocal = autoLocal.isChecked();
+        String un = userName.getText().toString().trim().replaceAll("[\\\\/\\[\\]:;|=,+*?<>\"@]", "");
+        cfg.userName = un.isEmpty() ? "User" : (un.length() > 20 ? un.substring(0, 20) : un);
+        cfg.userPass = userPass.getText().toString();
         cfg.save();
     }
 
@@ -305,7 +319,10 @@ public class MainActivity extends Activity {
                 + "<b>Windows 11 설치 팁</b><br>"
                 + "• 명령 프롬프트: 화면을 한 번 탭해 설치 창을 선택한 뒤, 상단 툴바의 <b>Shift+F10</b> 버튼을 누르세요. "
                 + "(휴대폰 키보드에는 F10이 없어서 툴바 버튼을 써야 합니다)<br>"
-                + "• MS 계정 없이 로컬 계정 만들기: Shift+F10 → <tt>start ms-cxh:localonly</tt> "
+                + "• <b>로컬 계정 자동 생성</b>이 켜져 있으면(기본) 설치 후 계정·인터넷·개인정보 질문 없이 "
+                + "바로 바탕화면으로 자동 로그인합니다. 디스크 선택과 에디션(Home/Pro) 선택만 직접 하면 됩니다. "
+                + "VM 시작 전에 켜 두어야 적용돼요.<br>"
+                + "• 수동으로 하려면: Shift+F10 → <tt>start ms-cxh:localonly</tt> "
                 + "(예전 버전은 <tt>OOBE\\BYPASSNRO</tt>).<br>"
                 + "• TPM을 끈 경우: 설치 화면에서 Shift+F10 → regedit → HKLM\\SYSTEM\\Setup\\LabConfig 에 "
                 + "BypassTPMCheck, BypassSecureBootCheck, BypassRAMCheck (DWORD=1) 추가.<br>"

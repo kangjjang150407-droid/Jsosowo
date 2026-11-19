@@ -16,7 +16,7 @@ public final class Env {
 
     /** Packages installed inside Alpine. */
     public static final String PACKAGES =
-            "qemu-system-x86_64 qemu-system-aarch64 qemu-img swtpm";
+            "qemu-system-x86_64 qemu-system-aarch64 qemu-img swtpm xorriso";
 
     public final File files;
     public final File rootfs;

@@ -90,6 +90,27 @@
             style="@style/Label"
             android:text="보안 부팅 지원 UEFI (x64 전용)" />
 
+        <CheckBox
+            android:id="@+id/autoLocal"
+            style="@style/Label"
+            android:text="로컬 계정 자동 생성 (MS 계정·인터넷 없이 설치, 자동 로그인)" />
+
+        <LinearLayout style="@style/Row">
+            <TextView style="@style/RowLabel" android:text="사용자 이름" />
+            <EditText
+                android:id="@+id/userName"
+                style="@style/Num"
+                android:inputType="text" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Row">
+            <TextView style="@style/RowLabel" android:text="비밀번호 (비워도 됨)" />
+            <EditText
+                android:id="@+id/userPass"
+                style="@style/Num"
+                android:inputType="textPassword" />
+        </LinearLayout>
+
         <EditText
             android:id="@+id/extra"
             android:layout_width="match_parent"

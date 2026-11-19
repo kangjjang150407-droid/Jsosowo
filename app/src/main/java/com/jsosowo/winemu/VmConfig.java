@@ -18,6 +18,9 @@ public final class VmConfig {
     public boolean secureBoot;
     public String cpuModel;
     public String extraArgs;
+    public boolean autoLocal;   // auto-create a local account via autounattend.xml
+    public String userName;
+    public String userPass;
 
     private final SharedPreferences sp;
 
@@ -26,6 +29,7 @@ public final class VmConfig {
         sp = null;
         ramMb = 4096; cores = 2; diskGb = 64; tpm = true; secureBoot = true;
         cpuModel = "max"; extraArgs = "";
+        autoLocal = true; userName = "User"; userPass = "";
     }
 
     public VmConfig(Context ctx) {
@@ -38,6 +42,9 @@ public final class VmConfig {
         secureBoot = sp.getBoolean("secureBoot", true);
         cpuModel = sp.getString("cpu", "max");
         extraArgs = sp.getString("extra", "");
+        autoLocal = sp.getBoolean("autoLocal", true);
+        userName = sp.getString("userName", "User");
+        userPass = sp.getString("userPass", "");
     }
 
     public void save() {
@@ -50,12 +57,26 @@ public final class VmConfig {
                 .putBoolean("secureBoot", secureBoot)
                 .putString("cpu", cpuModel)
                 .putString("extra", extraArgs)
+                .putBoolean("autoLocal", autoLocal)
+                .putString("userName", userName)
+                .putString("userPass", userPass)
                 .apply();
     }
 
     public String diskName() { return arm64 ? "win11-arm64.qcow2" : "win11-x64.qcow2"; }
     public String varsName() { return arm64 ? "efivars-arm64.fd" : "efivars-x64.fd"; }
     public static final String ISO_NAME = "install.iso";
+
+    /** Writes vm/unattend/autounattend.xml for the current settings (or removes it). */
+    public void prepareUnattend(File vmDir) throws java.io.IOException {
+        File dir = new File(vmDir, "unattend");
+        File xml = new File(dir, "autounattend.xml");
+        if (!autoLocal) { xml.delete(); return; }
+        dir.mkdirs();
+        try (java.io.OutputStream o = new java.io.FileOutputStream(xml)) {
+            o.write(Unattend.xml(arm64, userName, userPass).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
 
     /** Shell script executed inside Alpine that prepares files and launches QEMU. */
     public String buildScript(File vmDir, boolean kvm) {
@@ -82,6 +103,13 @@ public final class VmConfig {
             s.append("CODE=/usr/share/qemu/").append(secureBoot ? "edk2-x86_64-secure-code.fd" : "edk2-x86_64-code.fd").append("\n");
             s.append("[ -f ").append(varsName()).append(" ] || cp /usr/share/qemu/edk2-i386-vars.fd ")
                     .append(varsName()).append("\n");
+        }
+
+        // Answer file on a second CD: Windows Setup picks up autounattend.xml from it
+        boolean unattend = hasIso && autoLocal;
+        if (unattend) {
+            s.append("command -v xorriso >/dev/null || apk add --no-progress xorriso\n");
+            s.append("rm -f unattend.iso && xorriso -as mkisofs -quiet -J -r -V UNATTEND -o unattend.iso /vm/unattend\n");
         }
 
         // Software TPM 2.0 (required by Windows 11)
@@ -125,6 +153,10 @@ public final class VmConfig {
                 a.append(" -drive if=none,id=cd0,media=cdrom,readonly=on,file=/vm/").append(ISO_NAME);
                 a.append(" -device usb-storage,drive=cd0,bootindex=0");
             }
+            if (unattend) {
+                a.append(" -drive if=none,id=cd1,media=cdrom,readonly=on,file=/vm/unattend.iso");
+                a.append(" -device usb-storage,drive=cd1");
+            }
             a.append(" -netdev user,id=n0 -device usb-net,netdev=n0");
         } else {
             a.append(" -vga std");
@@ -134,6 +166,10 @@ public final class VmConfig {
             if (hasIso) {
                 a.append(" -drive if=none,id=cd0,media=cdrom,readonly=on,file=/vm/").append(ISO_NAME);
                 a.append(" -device ide-cd,drive=cd0,bus=ahci.1,bootindex=0");
+            }
+            if (unattend) {
+                a.append(" -drive if=none,id=cd1,media=cdrom,readonly=on,file=/vm/unattend.iso");
+                a.append(" -device ide-cd,drive=cd1,bus=ahci.2");
             }
             a.append(" -netdev user,id=n0 -device e1000e,netdev=n0");
             a.append(" -audiodev none,id=snd0");
