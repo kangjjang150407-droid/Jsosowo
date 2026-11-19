@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>VM Screen</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
+  #screen { position: absolute; inset: 0; }
+  #bar {
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 4px; padding: 4px; background: rgba(30,30,36,.85);
+    border-radius: 0 0 10px 10px; z-index: 10; flex-wrap: wrap; justify-content: center;
+    max-width: 98vw;
+  }
+  #bar.hidden > button:not(#toggle) { display: none; }
+  #bar button {
+    background: #3a3a46; color: #fff; border: 0; border-radius: 6px;
+    padding: 7px 9px; font-size: 13px; min-width: 34px;
+  }
+  #bar button.on { background: #0067c0; }
+  #msg {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #ddd; font-size: 16px; text-align: center; padding: 20px; pointer-events: none;
+    white-space: pre-line;
+  }
+  #kbd {
+    position: absolute; left: -1000px; top: 0; width: 10px; height: 10px; opacity: 0;
+  }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+<div id="msg">VM 화면에 연결 중…</div>
+<textarea id="kbd" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+<div id="bar" class="hidden">
+  <button id="toggle">☰</button>
+  <button id="k">⌨</button>
+  <button data-mod="ctrl">Ctrl</button>
+  <button data-mod="alt">Alt</button>
+  <button data-mod="shift">Shift</button>
+  <button id="win">⊞ Win</button>
+  <button data-key="Escape">Esc</button>
+  <button data-key="Tab">Tab</button>
+  <button data-key="Enter">Enter</button>
+  <button data-key="Backspace">⌫</button>
+  <button data-key="Delete">Del</button>
+  <button id="sf10">Shift+F10</button>
+  <button id="cad">Ctrl+Alt+Del</button>
+  <button id="fkeys">F1-12</button>
+  <button id="close">✕</button>
+</div>
+
+<script type="module">
+import RFB from './core/rfb.js';
+import KeyTable from './core/input/keysym.js';
+import keysyms from './core/input/keysymdef.js';
+
+const params = new URLSearchParams(location.search);
+const port = params.get('port') || '5700';
+const url = `ws://127.0.0.1:${port}`;
+const msg = document.getElementById('msg');
+const screenEl = document.getElementById('screen');
+const kbd = document.getElementById('kbd');
+let rfb = null;
+let retryTimer = null;
+
+const K = {
+  Escape: [KeyTable.XK_Escape, 'Escape'],
+  Tab: [KeyTable.XK_Tab, 'Tab'],
+  Enter: [KeyTable.XK_Return, 'Enter'],
+  Backspace: [KeyTable.XK_BackSpace, 'Backspace'],
+  Delete: [KeyTable.XK_Delete, 'Delete'],
+  ctrl: [KeyTable.XK_Control_L, 'ControlLeft'],
+  alt: [KeyTable.XK_Alt_L, 'AltLeft'],
+  shift: [KeyTable.XK_Shift_L, 'ShiftLeft'],
+  win: [KeyTable.XK_Super_L, 'MetaLeft'],
+};
+const mods = { ctrl: false, alt: false, shift: false };
+
+function connect() {
+  clearTimeout(retryTimer);
+  try {
+    rfb = new RFB(screenEl, url, { shared: true });
+  } catch (e) {
+    retry('연결 실패: ' + e);
+    return;
+  }
+  rfb.scaleViewport = true;
+  rfb.resizeSession = false;
+  rfb.focusOnClick = true;
+  rfb.qualityLevel = 9;
+  rfb.compressionLevel = 0;
+  rfb.addEventListener('connect', () => { msg.textContent = ''; });
+  rfb.addEventListener('disconnect', () => {
+    rfb = null;
+    retry('VM 화면 연결이 끊겼습니다.');
+  });
+}
+
+function retry(text) {
+  const running = window.Android ? Android.isRunning() : true;
+  msg.textContent = running
+    ? text + '\nVM 부팅을 기다리는 중… 자동으로 다시 연결합니다.'
+    : 'VM이 실행 중이 아닙니다.\n메인 화면에서 "VM 시작"을 눌러주세요.';
+  retryTimer = setTimeout(connect, 2000);
+}
+
+function tap(name) {
+  if (!rfb) return;
+  const [sym, code] = K[name];
+  rfb.sendKey(sym, code, true);
+  rfb.sendKey(sym, code, false);
+  releaseMods();
+}
+
+function sendChar(ch) {
+  if (!rfb) return;
+  const sym = keysyms.lookup(ch.codePointAt(0));
+  rfb.sendKey(sym, null, true);
+  rfb.sendKey(sym, null, false);
+  releaseMods();
+}
+
+function releaseMods() {
+  for (const m of Object.keys(mods)) {
+    if (mods[m]) {
+      mods[m] = false;
+      rfb && rfb.sendKey(K[m][0], K[m][1], false);
+      document.querySelector(`[data-mod="${m}"]`).classList.remove('on');
+    }
+  }
+}
+
+// ---- toolbar ----
+const bar = document.getElementById('bar');
+document.getElementById('toggle').onclick = () => bar.classList.toggle('hidden');
+document.getElementById('close').onclick = () => window.Android && Android.close();
+document.getElementById('k').onclick = () => {
+  kbd.focus();
+  window.Android && Android.toggleKeyboard();
+};
+document.getElementById('win').onclick = () => tap('win');
+document.getElementById('cad').onclick = () => rfb && rfb.sendCtrlAltDel();
+document.getElementById('sf10').onclick = () => {
+  if (!rfb) return;
+  rfb.sendKey(KeyTable.XK_Shift_L, 'ShiftLeft', true);
+  rfb.sendKey(KeyTable.XK_F10, 'F10', true);
+  rfb.sendKey(KeyTable.XK_F10, 'F10', false);
+  rfb.sendKey(KeyTable.XK_Shift_L, 'ShiftLeft', false);
+};
+document.getElementById('fkeys').onclick = () => {
+  const n = parseInt(prompt('F 키 번호 (1-12)', '2'), 10);
+  if (rfb && n >= 1 && n <= 12) {
+    const sym = KeyTable.XK_F1 + (n - 1);
+    rfb.sendKey(sym, 'F' + n, true);
+    rfb.sendKey(sym, 'F' + n, false);
+    releaseMods();
+  }
+};
+for (const b of document.querySelectorAll('[data-key]')) b.onclick = () => tap(b.dataset.key);
+for (const b of document.querySelectorAll('[data-mod]')) {
+  b.onclick = () => {
+    const m = b.dataset.mod;
+    mods[m] = !mods[m];
+    b.classList.toggle('on', mods[m]);
+    rfb && rfb.sendKey(K[m][0], K[m][1], mods[m]);
+  };
+}
+// keep toolbar buttons from stealing VNC focus
+for (const b of bar.querySelectorAll('button')) b.addEventListener('mousedown', e => e.preventDefault());
+
+// ---- Android soft keyboard → VNC ----
+kbd.addEventListener('keydown', e => {
+  const map = { Enter: 'Enter', Backspace: 'Backspace', Tab: 'Tab', Escape: 'Escape', Delete: 'Delete' };
+  if (map[e.key]) { e.preventDefault(); tap(map[e.key]); return; }
+  const arrows = { ArrowUp: KeyTable.XK_Up, ArrowDown: KeyTable.XK_Down, ArrowLeft: KeyTable.XK_Left, ArrowRight: KeyTable.XK_Right };
+  if (arrows[e.key] && rfb) { e.preventDefault(); rfb.sendKey(arrows[e.key], e.key, true); rfb.sendKey(arrows[e.key], e.key, false); }
+});
+kbd.addEventListener('input', e => {
+  if (e.isComposing || e.inputType === 'insertCompositionText') return;
+  if (e.inputType === 'deleteContentBackward') tap('Backspace');
+  else if (e.inputType === 'insertLineBreak') tap('Enter');
+  else if (e.data) for (const ch of e.data) sendChar(ch);
+  kbd.value = '';
+});
+kbd.addEventListener('compositionend', e => {
+  if (e.data) for (const ch of e.data) sendChar(ch);
+  kbd.value = '';
+});
+
+connect();
+</script>
+</body>
+</html>

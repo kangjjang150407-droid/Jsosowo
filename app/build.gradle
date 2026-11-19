@@ -1,0 +1,39 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.jsosowo.winemu'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.jsosowo.winemu'
+        minSdk 24
+        // targetSdk 28 is intentional: Android forbids executing files from the app's
+        // data directory for targetSdk >= 29, which proot needs to run the Linux userland.
+        //noinspection ExpiredTargetSdkVersion
+        targetSdk 28
+        versionCode 1
+        versionName '1.0'
+        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Signed with the debug key so the APK can be sideloaded directly.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    packagingOptions {
+        jniLibs { useLegacyPackaging true }   // extract proot binaries to disk
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint { abortOnError false; checkReleaseBuilds false }
+}

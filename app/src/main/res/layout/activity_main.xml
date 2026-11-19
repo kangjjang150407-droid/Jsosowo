@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1B1B1F"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="#2B2B33"
+            android:padding="10dp"
+            android:textColor="#9FD3FF"
+            android:textSize="14sp" />
+
+        <!-- Step 1 -->
+        <TextView style="@style/Section" android:text="1단계 · 실행 환경" />
+
+        <Button
+            android:id="@+id/btnSetup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="리눅스 + QEMU 환경 설치 (최초 1회)" />
+
+        <!-- Step 2 -->
+        <TextView style="@style/Section" android:text="2단계 · 가상 PC 설정" />
+
+        <RadioGroup
+            android:id="@+id/archGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <RadioButton
+                android:id="@+id/archX64"
+                style="@style/Label"
+                android:text="Windows 11 x64 (일반 PC용 ISO · x86_64 에뮬레이션)" />
+
+            <RadioButton
+                android:id="@+id/archArm"
+                style="@style/Label"
+                android:text="Windows 11 ARM64 (ARM용 ISO · 휴대폰에서 더 빠름)" />
+        </RadioGroup>
+
+        <LinearLayout style="@style/Row">
+            <TextView style="@style/RowLabel" android:text="메모리 (MB)" />
+            <EditText android:id="@+id/ram" style="@style/Num" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Row">
+            <TextView style="@style/RowLabel" android:text="CPU 코어 수" />
+            <EditText android:id="@+id/cores" style="@style/Num" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Row">
+            <TextView style="@style/RowLabel" android:text="디스크 크기 (GB)" />
+            <EditText android:id="@+id/disk" style="@style/Num" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Row">
+            <TextView style="@style/RowLabel" android:text="CPU 모델" />
+            <EditText
+                android:id="@+id/cpu"
+                style="@style/Num"
+                android:inputType="text" />
+        </LinearLayout>
+
+        <CheckBox
+            android:id="@+id/tpm"
+            style="@style/Label"
+            android:text="TPM 2.0 (swtpm) — Windows 11 필수" />
+
+        <CheckBox
+            android:id="@+id/secureBoot"
+            style="@style/Label"
+            android:text="보안 부팅 지원 UEFI (x64 전용)" />
+
+        <EditText
+            android:id="@+id/extra"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="추가 QEMU 옵션 (선택)"
+            android:inputType="text"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#777777"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/isoInfo"
+            style="@style/Label"
+            android:layout_marginTop="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnIso"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="ISO 선택" />
+
+            <Button
+                android:id="@+id/btnIsoRemove"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="ISO 빼기" />
+        </LinearLayout>
+
+        <!-- Step 3 -->
+        <TextView style="@style/Section" android:text="3단계 · 실행" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnStart"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="▶ VM 시작" />
+
+            <Button
+                android:id="@+id/btnScreen"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="🖥 화면 보기" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnPower"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="종료 (ACPI)" />
+
+            <Button
+                android:id="@+id/btnKill"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="강제 종료" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnResetDisk"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="가상 디스크 삭제 (초기화)" />
+
+        <TextView style="@style/Section" android:text="로그" />
+
+        <TextView
+            android:id="@+id/log"
+            android:layout_width="match_parent"
+            android:layout_height="260dp"
+            android:background="#000000"
+            android:fontFamily="monospace"
+            android:gravity="bottom"
+            android:padding="6dp"
+            android:scrollbars="vertical"
+            android:textColor="#B0FFB0"
+            android:textIsSelectable="true"
+            android:textSize="10sp" />
+
+        <TextView style="@style/Section" android:text="도움말" />
+
+        <TextView
+            android:id="@+id/help"
+            style="@style/Label"
+            android:textSize="13sp" />
+    </LinearLayout>
+</ScrollView>
