@@ -108,6 +108,13 @@ public class DisplayActivity extends Activity {
         @JavascriptInterface
         public void close() { runOnUiThread(DisplayActivity.this::finish); }
 
+        /** keys: comma separated QEMU qcodes, e.g. "shift,f10". Runs off the UI thread. */
+        @JavascriptInterface
+        public void sendKeys(String keys, int holdMs) {
+            String[] k = keys.split(",");
+            new Thread(() -> VmService.sendKeys(k, Math.max(50, Math.min(2000, holdMs))), "keys").start();
+        }
+
         @JavascriptInterface
         public boolean isRunning() { return VmService.running; }
     }

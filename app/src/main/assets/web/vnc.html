@@ -13,7 +13,9 @@
     border-radius: 0 0 10px 10px; z-index: 10; flex-wrap: wrap; justify-content: center;
     max-width: 98vw;
   }
-  #bar.hidden > button:not(#toggle) { display: none; }
+  #bar.hidden > button:not(#toggle), #bar.hidden > #frow { display: none; }
+  #frow { display: none; width: 100%; gap: 4px; justify-content: center; flex-wrap: wrap; }
+  #frow.show { display: flex; }
   #bar button {
     background: #3a3a46; color: #fff; border: 0; border-radius: 6px;
     padding: 7px 9px; font-size: 13px; min-width: 34px;
@@ -33,22 +35,24 @@
 <div id="screen"></div>
 <div id="msg">VM 화면에 연결 중…</div>
 <textarea id="kbd" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
-<div id="bar" class="hidden">
+<div id="bar">
   <button id="toggle">☰</button>
   <button id="k">⌨</button>
   <button data-mod="ctrl">Ctrl</button>
   <button data-mod="alt">Alt</button>
   <button data-mod="shift">Shift</button>
-  <button id="win">⊞ Win</button>
+  <button data-key="win">⊞ Win</button>
   <button data-key="Escape">Esc</button>
   <button data-key="Tab">Tab</button>
   <button data-key="Enter">Enter</button>
   <button data-key="Backspace">⌫</button>
   <button data-key="Delete">Del</button>
-  <button id="sf10">Shift+F10</button>
-  <button id="cad">Ctrl+Alt+Del</button>
+  <button data-combo="shift F10">Shift+F10</button>
+  <button data-combo="ctrl alt Delete">Ctrl+Alt+Del</button>
+  <button data-combo="ctrl shift Escape">작업관리자</button>
   <button id="fkeys">F1-12</button>
   <button id="close">✕</button>
+  <div id="frow"></div>
 </div>
 
 <script type="module">
@@ -62,21 +66,30 @@ const url = `ws://127.0.0.1:${port}`;
 const msg = document.getElementById('msg');
 const screenEl = document.getElementById('screen');
 const kbd = document.getElementById('kbd');
+const bar = document.getElementById('bar');
 let rfb = null;
 let retryTimer = null;
 
-const K = {
-  Escape: [KeyTable.XK_Escape, 'Escape'],
-  Tab: [KeyTable.XK_Tab, 'Tab'],
-  Enter: [KeyTable.XK_Return, 'Enter'],
-  Backspace: [KeyTable.XK_BackSpace, 'Backspace'],
-  Delete: [KeyTable.XK_Delete, 'Delete'],
-  ctrl: [KeyTable.XK_Control_L, 'ControlLeft'],
-  alt: [KeyTable.XK_Alt_L, 'AltLeft'],
-  shift: [KeyTable.XK_Shift_L, 'ShiftLeft'],
-  win: [KeyTable.XK_Super_L, 'MetaLeft'],
+// name -> [X11 keysym, DOM code, QEMU qcode]
+const KEYS = {
+  Escape: [KeyTable.XK_Escape, 'Escape', 'esc'],
+  Tab: [KeyTable.XK_Tab, 'Tab', 'tab'],
+  Enter: [KeyTable.XK_Return, 'Enter', 'ret'],
+  Backspace: [KeyTable.XK_BackSpace, 'Backspace', 'backspace'],
+  Delete: [KeyTable.XK_Delete, 'Delete', 'delete'],
+  ArrowUp: [KeyTable.XK_Up, 'ArrowUp', 'up'],
+  ArrowDown: [KeyTable.XK_Down, 'ArrowDown', 'down'],
+  ArrowLeft: [KeyTable.XK_Left, 'ArrowLeft', 'left'],
+  ArrowRight: [KeyTable.XK_Right, 'ArrowRight', 'right'],
+  ctrl: [KeyTable.XK_Control_L, 'ControlLeft', 'ctrl'],
+  alt: [KeyTable.XK_Alt_L, 'AltLeft', 'alt'],
+  shift: [KeyTable.XK_Shift_L, 'ShiftLeft', 'shift'],
+  win: [KeyTable.XK_Super_L, 'MetaLeft', 'meta_l'],
 };
+for (let n = 1; n <= 12; n++) KEYS['F' + n] = [KeyTable.XK_F1 + n - 1, 'F' + n, 'f' + n];
+
 const mods = { ctrl: false, alt: false, shift: false };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function connect() {
   clearTimeout(retryTimer);
@@ -106,81 +119,84 @@ function retry(text) {
   retryTimer = setTimeout(connect, 2000);
 }
 
-function tap(name) {
-  if (!rfb) return;
-  const [sym, code] = K[name];
-  rfb.sendKey(sym, code, true);
-  rfb.sendKey(sym, code, false);
-  releaseMods();
+/** Takes the sticky modifiers (Ctrl/Alt/Shift buttons) for the next key and resets them. */
+function takeMods() {
+  const on = Object.keys(mods).filter(m => mods[m]);
+  for (const m of on) {
+    mods[m] = false;
+    document.querySelector(`[data-mod="${m}"]`).classList.remove('on');
+  }
+  return on;
 }
 
-function sendChar(ch) {
+/**
+ * Press keys in order, hold them, release in reverse — like a person would.
+ * Sending all four events at the same instant (the old behaviour) lets Windows miss
+ * combinations such as Shift+F10.
+ */
+let queue = Promise.resolve();
+function vncCombo(list, hold = 120) {
+  // queued so that fast typing never interleaves key presses
+  queue = queue.then(() => vncComboNow(list, hold)).catch(() => {});
+}
+async function vncComboNow(list, hold) {
   if (!rfb) return;
-  const sym = keysyms.lookup(ch.codePointAt(0));
-  rfb.sendKey(sym, null, true);
-  rfb.sendKey(sym, null, false);
-  releaseMods();
+  for (const [sym, code] of list) { rfb.sendKey(sym, code, true); await sleep(list.length > 1 ? 40 : 0); }
+  await sleep(hold);
+  for (const [sym, code] of [...list].reverse()) { rfb && rfb.sendKey(sym, code, false); await sleep(25); }
 }
 
-function releaseMods() {
-  for (const m of Object.keys(mods)) {
-    if (mods[m]) {
-      mods[m] = false;
-      rfb && rfb.sendKey(K[m][0], K[m][1], false);
-      document.querySelector(`[data-mod="${m}"]`).classList.remove('on');
-    }
+/** Press named keys (plus any sticky modifiers) inside the VM. */
+function press(...names) {
+  const all = [...takeMods().filter(m => !names.includes(m)), ...names];
+  // Prefer QEMU's own send-key (via the app): keys are truly held for 150 ms.
+  if (window.Android && Android.sendKeys) {
+    Android.sendKeys(all.map(n => KEYS[n][2]).join(','), 150);
+  } else {
+    vncCombo(all.map(n => KEYS[n]));
   }
 }
 
+function sendChar(ch) {
+  const sym = keysyms.lookup(ch.codePointAt(0));
+  vncCombo([...takeMods().map(m => KEYS[m]), [sym, null]], 25);
+}
+
 // ---- toolbar ----
-const bar = document.getElementById('bar');
+const frow = document.getElementById('frow');
+for (let n = 1; n <= 12; n++) {
+  const b = document.createElement('button');
+  b.textContent = 'F' + n;
+  b.onclick = () => press('F' + n);
+  frow.appendChild(b);
+}
+document.getElementById('fkeys').onclick = () => frow.classList.toggle('show');
 document.getElementById('toggle').onclick = () => bar.classList.toggle('hidden');
 document.getElementById('close').onclick = () => window.Android && Android.close();
 document.getElementById('k').onclick = () => {
   kbd.focus();
   window.Android && Android.toggleKeyboard();
 };
-document.getElementById('win').onclick = () => tap('win');
-document.getElementById('cad').onclick = () => rfb && rfb.sendCtrlAltDel();
-document.getElementById('sf10').onclick = () => {
-  if (!rfb) return;
-  rfb.sendKey(KeyTable.XK_Shift_L, 'ShiftLeft', true);
-  rfb.sendKey(KeyTable.XK_F10, 'F10', true);
-  rfb.sendKey(KeyTable.XK_F10, 'F10', false);
-  rfb.sendKey(KeyTable.XK_Shift_L, 'ShiftLeft', false);
-};
-document.getElementById('fkeys').onclick = () => {
-  const n = parseInt(prompt('F 키 번호 (1-12)', '2'), 10);
-  if (rfb && n >= 1 && n <= 12) {
-    const sym = KeyTable.XK_F1 + (n - 1);
-    rfb.sendKey(sym, 'F' + n, true);
-    rfb.sendKey(sym, 'F' + n, false);
-    releaseMods();
-  }
-};
-for (const b of document.querySelectorAll('[data-key]')) b.onclick = () => tap(b.dataset.key);
+for (const b of document.querySelectorAll('[data-key]')) b.onclick = () => press(b.dataset.key);
+for (const b of document.querySelectorAll('[data-combo]')) b.onclick = () => press(...b.dataset.combo.split(' '));
 for (const b of document.querySelectorAll('[data-mod]')) {
   b.onclick = () => {
     const m = b.dataset.mod;
     mods[m] = !mods[m];
     b.classList.toggle('on', mods[m]);
-    rfb && rfb.sendKey(K[m][0], K[m][1], mods[m]);
   };
 }
 // keep toolbar buttons from stealing VNC focus
-for (const b of bar.querySelectorAll('button')) b.addEventListener('mousedown', e => e.preventDefault());
+bar.addEventListener('mousedown', e => { if (e.target.tagName === 'BUTTON') e.preventDefault(); });
 
 // ---- Android soft keyboard → VNC ----
 kbd.addEventListener('keydown', e => {
-  const map = { Enter: 'Enter', Backspace: 'Backspace', Tab: 'Tab', Escape: 'Escape', Delete: 'Delete' };
-  if (map[e.key]) { e.preventDefault(); tap(map[e.key]); return; }
-  const arrows = { ArrowUp: KeyTable.XK_Up, ArrowDown: KeyTable.XK_Down, ArrowLeft: KeyTable.XK_Left, ArrowRight: KeyTable.XK_Right };
-  if (arrows[e.key] && rfb) { e.preventDefault(); rfb.sendKey(arrows[e.key], e.key, true); rfb.sendKey(arrows[e.key], e.key, false); }
+  if (KEYS[e.key] && !e.key.startsWith('F')) { e.preventDefault(); press(e.key); }
 });
 kbd.addEventListener('input', e => {
   if (e.isComposing || e.inputType === 'insertCompositionText') return;
-  if (e.inputType === 'deleteContentBackward') tap('Backspace');
-  else if (e.inputType === 'insertLineBreak') tap('Enter');
+  if (e.inputType === 'deleteContentBackward') press('Backspace');
+  else if (e.inputType === 'insertLineBreak') press('Enter');
   else if (e.data) for (const ch of e.data) sendChar(ch);
   kbd.value = '';
 });

@@ -303,6 +303,26 @@ public class VmService extends Service {
 
     /** Sends a single QMP command to the running QEMU. */
     static boolean qmp(String command) {
+        return qmpExec("{\"execute\":\"" + command + "\"}", command);
+    }
+
+    /**
+     * Presses a key combination inside the guest via QMP send-key, holding it for holdMs.
+     * More reliable than VNC for combos like Shift+F10 because the keys are really held down.
+     */
+    static boolean sendKeys(String[] qcodes, int holdMs) {
+        StringBuilder keys = new StringBuilder();
+        for (String k : qcodes) {
+            if (!k.matches("[a-z0-9_]+")) return false;
+            if (keys.length() > 0) keys.append(',');
+            keys.append("{\"type\":\"qcode\",\"data\":\"").append(k).append("\"}");
+        }
+        return qmpExec("{\"execute\":\"send-key\",\"arguments\":{\"keys\":[" + keys
+                + "],\"hold-time\":" + holdMs + "}}", "send-key " + String.join("+", qcodes));
+    }
+
+    private static synchronized boolean qmpExec(String json, String label) {
+        String command = label;
         try (Socket s = new Socket()) {
             s.connect(new InetSocketAddress("127.0.0.1", VmConfig.QMP_PORT), 2000);
             s.setSoTimeout(3000);
@@ -311,7 +331,7 @@ public class VmService extends Service {
             r.readLine(); // greeting
             o.write("{\"execute\":\"qmp_capabilities\"}\n".getBytes(StandardCharsets.UTF_8));
             r.readLine();
-            o.write(("{\"execute\":\"" + command + "\"}\n").getBytes(StandardCharsets.UTF_8));
+            o.write((json + "\n").getBytes(StandardCharsets.UTF_8));
             o.flush();
             log("[winemu] QMP " + command + " -> " + r.readLine());
             return true;
